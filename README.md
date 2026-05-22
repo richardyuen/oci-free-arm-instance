@@ -1,10 +1,12 @@
 # OCI Always Free Arm (A1.Flex) VM Creator
 
-[![Try to Create OCI VM](https://github.com/heykapil/oci-free-arm-instance/actions/workflows/create-vm.yml/badge.svg)](https://github.com/heykapil/oci-free-arm-instance/actions/workflows/create-vm.yml)
+[![Try to Create OCI VM](https://github.com/znzn007007/oci-free-arm-instance/actions/workflows/create-vm.yml/badge.svg)](https://github.com/znzn007007/oci-free-arm-instance/actions/workflows/create-vm.yml)
 
 This repository contains a GitHub Actions workflow that automatically tries to provision an "Always Free" `VM.Standard.A1.Flex` (Arm) compute instance in your Oracle Cloud Infrastructure (OCI) account.
 
 This is necessary because the "Always Free" Arm instances are a popular resource and are often unavailable due to high demand, resulting in an `"Out of host capacity."` error. You can try to upgrade to `pay as you go` plan which has a very good chance of getting available instance. Be sure to remain in free limits and check your costs frequently.
+
+This fork sends attempt notifications to a Feishu/Lark custom bot webhook instead of Discord.
 
 ## Features
 
@@ -12,7 +14,7 @@ This is necessary because the "Always Free" Arm instances are a popular resource
 * **Persistent:** The workflow runs on a 10-minute schedule, continuously retrying until it successfully provisions your VM.
 * **Secure:** All sensitive credentials, keys, and IDs are stored in encrypted GitHub Secrets. The repository itself contains no private information and is safe to be public.
 * **Fast:** Uses GitHub's caching to store the `oci-cli` installation, so subsequent runs are much faster.
-* **Informative:** Sends detailed notifications to a Discord channel on every attempt, showing the full success or error log (e.g., "Out of host capacity").
+* **Informative:** Sends detailed notifications to a Feishu/Lark group on every attempt, showing the full success or error log (e.g., "Out of host capacity").
 
 ---
 
@@ -24,7 +26,7 @@ To use this, you need to **Fork** this repository and set up your OCI credential
 
 * An Oracle Cloud Infrastructure (OCI) "Always Free" account.
 * A GitHub account.
-* A Discord server/channel to receive notifications.
+* A Feishu/Lark group to receive notifications.
 
 ---
 
@@ -96,12 +98,12 @@ This is the key you will use to log in to your new server.
 
 ---
 
-## Step 3: Create a Discord Webhook
+## Step 3: Create a Feishu/Lark Webhook
 
-1.  Open your Discord server. Right-click on a channel name and click **"Edit Channel"**.
-2.  Go to the **"Integrations"** tab.
-3.  Click **"Webhooks"** -> **"New Webhook"**.
-4.  Give it a name (e.g., "OCI Notifier") and click **"Copy Webhook URL"**.
+1.  Open the Feishu/Lark group that should receive notifications.
+2.  Open the group settings and add a **Custom Bot**.
+3.  Copy the webhook URL. It usually looks like `https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx`.
+4.  Optional: If you enable signature verification for the bot, copy the signing secret too.
 
 ---
 
@@ -111,7 +113,7 @@ Go to your forked repository on GitHub.
 
 1.  Click the **"Settings"** tab.
 2.  In the left menu, click **"Secrets and variables"** -> **"Actions"**.
-3.  Click the **"New repository secret"** button for *each* of the 11 secrets listed below.
+3.  Click the **"New repository secret"** button for each secret listed below.
 
 #### **VM Secrets**
 
@@ -131,7 +133,8 @@ Go to your forked repository on GitHub.
 
 #### **Notification Secret**
 
-* `DISCORD_WEBHOOK_URL` (Value: The URL you copied from Discord in Step 3)
+* `FEISHU_WEBHOOK_URL` (Value: The webhook URL you copied from Feishu/Lark in Step 3)
+* `FEISHU_WEBHOOK_SECRET` (Optional. Value: The signing secret if you enabled signature verification for the custom bot)
 
 ---
 
@@ -143,13 +146,13 @@ You're all set! Now you just need to start the process.
 2.  In the left sidebar, click on **"Try to Create OCI VM"**.
 3.  You will see a message: "This workflow has a `workflow_dispatch` event." Click the **"Run workflow"** button on the right, and then **"Run workflow"** again.
 
-This will start the first run. From now on, the `schedule` will automatically run it every 10 minutes. You can check the "Actions" tab to see the logs from each run. You will also get a notification in Discord every time it tries.
+This will start the first run. From now on, the `schedule` will automatically run it every 10 minutes. You can check the "Actions" tab to see the logs from each run. You will also get a notification in Feishu/Lark every time it tries.
 
 ---
 
 ## 🚨 CRITICAL: What to Do on Success
 
-One day, you will get a **green "success"** notification in Discord. This means your VM has been created!
+One day, you will get a **success** notification in Feishu/Lark. This means your VM has been created!
 
 As soon as you see this, you **MUST** disable the workflow.
 

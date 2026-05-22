@@ -78,19 +78,76 @@ jobs:
             exit 1
           fi
 
-      - name: Send Discord Notification
+      - name: Send Feishu Notification
         if: always()
-        uses: sarisia/actions-status-discord@v1.15.4
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          title: "OCI VM Status: ${{ steps.create_vm.outcome }}"
-          status: ${{ steps.create_vm.outcome }}
-          color: ${{ steps.create_vm.outcome == 'success' && '0x28a745' || '0xdc3545' }}
-          description: |
-            Attempt to create A1.Flex VM.
-            **Status:** `${{ steps.create_vm.outcome }}`
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+          CREATE_VM_STATUS: ${{ steps.create_vm.outcome }}
+          CREATE_VM_LOG: ${{ steps.create_vm.outputs.log_data }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import hmac
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
 
-            **Log Output:**
-            ```json
-            ${{ steps.create_vm.outputs.log_data }}
-            ```
+          webhook_url = os.environ["FEISHU_WEBHOOK_URL"]
+          secret = os.environ.get("FEISHU_WEBHOOK_SECRET", "")
+          status = os.environ["CREATE_VM_STATUS"]
+          log_data = os.environ.get("CREATE_VM_LOG", "")
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+
+          if len(log_data) > 12000:
+              log_data = f"{log_data[:12000]}\n\n...[truncated]"
+
+          payload = {
+              "msg_type": "post",
+              "content": {
+                  "post": {
+                      "zh_cn": {
+                          "title": f"OCI VM Status: {status}",
+                          "content": [
+                              [{"tag": "text", "text": "Attempt to create A1.Flex VM."}],
+                              [{"tag": "text", "text": f"Status: {status}"}],
+                              [{"tag": "a", "text": "View GitHub Actions run", "href": run_url}],
+                              [{"tag": "text", "text": f"Log Output:\n{log_data}"}],
+                          ],
+                      }
+                  }
+              },
+          }
+
+          if secret:
+              timestamp = str(int(time.time()))
+              string_to_sign = f"{timestamp}\n{secret}".encode("utf-8")
+              sign = base64.b64encode(
+                  hmac.new(string_to_sign, digestmod=hashlib.sha256).digest()
+              ).decode("utf-8")
+              payload["timestamp"] = timestamp
+              payload["sign"] = sign
+
+          request = urllib.request.Request(
+              webhook_url,
+              data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+              headers={"Content-Type": "application/json; charset=utf-8"},
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read().decode("utf-8")
+                  print(response.status)
+                  print(body)
+                  result = json.loads(body)
+          except urllib.error.HTTPError as error:
+              print(error.read().decode("utf-8"))
+              raise
+
+          if result.get("code") not in (0, None) or result.get("StatusCode") not in (0, None):
+              raise SystemExit(f"Feishu webhook returned an error: {body}")
+          PY
