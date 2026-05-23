@@ -1,169 +1,225 @@
-# OCI Always Free Arm (A1.Flex) VM Creator
+# OCI Always Free Arm (A1.Flex) VM Creator with Feishu Notifications
 
 [![Try to Create OCI VM](https://github.com/znzn007007/oci-free-arm-instance/actions/workflows/create-vm.yml/badge.svg)](https://github.com/znzn007007/oci-free-arm-instance/actions/workflows/create-vm.yml)
 
-This repository contains a GitHub Actions workflow that automatically tries to provision an "Always Free" `VM.Standard.A1.Flex` (Arm) compute instance in your Oracle Cloud Infrastructure (OCI) account.
+This fork runs a GitHub Actions workflow that repeatedly tries to create an Oracle Cloud Infrastructure (OCI) Always Free `VM.Standard.A1.Flex` Arm instance.
 
-This is necessary because the "Always Free" Arm instances are a popular resource and are often unavailable due to high demand, resulting in an `"Out of host capacity."` error. You can try to upgrade to `pay as you go` plan which has a very good chance of getting available instance. Be sure to remain in free limits and check your costs frequently.
+It is meant for the common OCI free-tier situation where A1.Flex capacity is temporarily unavailable and the OCI API returns:
 
-This fork sends attempt notifications to a Feishu/Lark custom bot webhook instead of Discord.
+```text
+Out of host capacity.
+```
 
-## Features
+The workflow keeps retrying on a schedule and sends Feishu/Lark notifications only when something needs attention.
 
-* **Fully Automated:** Runs entirely within GitHub Actions. You don't need to run anything on your local machine.
-* **Persistent:** The workflow runs on a 10-minute schedule, continuously retrying until it successfully provisions your VM.
-* **Secure:** All sensitive credentials, keys, and IDs are stored in encrypted GitHub Secrets. The repository itself contains no private information and is safe to be public.
-* **Fast:** Uses GitHub's caching to store the `oci-cli` installation, so subsequent runs are much faster.
-* **Informative:** Sends detailed notifications to a Feishu/Lark group on every attempt, showing the full success or error log (e.g., "Out of host capacity").
+## Current Behavior
 
----
+* Runs on GitHub-hosted `ubuntu-latest`; no self-hosted runner is required.
+* Runs every 5 minutes.
+* Can also be started manually from the GitHub Actions page.
+* Uses repository secrets for OCI credentials, region, image, subnet, availability domain, SSH key, and Feishu webhook.
+* Tries to create one `VM.Standard.A1.Flex` instance.
+* Default instance settings are `4 OCPU`, `24 GB RAM`, `200 GB boot volume`, and display name `coolify-vm`.
+* Does not send Feishu messages for expected `Out of host capacity` retries.
+* Sends Feishu messages for successful provisioning and non-capacity errors.
+* Supports Feishu/Lark custom bot signature verification through `FEISHU_WEBHOOK_SECRET`.
 
-## How to Use
+## Required Repository Secrets
 
-To use this, you need to **Fork** this repository and set up your OCI credentials as GitHub Secrets.
+Go to:
 
-### Prerequisites
+```text
+Settings -> Secrets and variables -> Actions -> Secrets -> New repository secret
+```
 
-* An Oracle Cloud Infrastructure (OCI) "Always Free" account.
-* A GitHub account.
-* A Feishu/Lark group to receive notifications.
+Add these repository secrets:
 
----
+| Secret | Value |
+| --- | --- |
+| `OCI_COMPARTMENT_ID` | The compartment OCID to create the VM in. For simple Always Free setups, the tenancy OCID often works here. |
+| `OCI_SUBNET_ID` | The subnet OCID where the VM should be created. |
+| `AD_NAME` | Availability domain name, for example `xxxx:US-PHOENIX-1-AD-1`. |
+| `IMAGE_ID` | Arm/aarch64 image OCID for your region. The image must support `VM.Standard.A1.Flex`. |
+| `OCI_CLI_REGION` | OCI region identifier, for example `us-phoenix-1`. |
+| `OCI_CLI_USER` | User OCID, starting with `ocid1.user...`. |
+| `OCI_CLI_TENANCY` | Tenancy OCID, starting with `ocid1.tenancy...`. |
+| `OCI_CLI_FINGERPRINT` | OCI API key fingerprint. |
+| `OCI_CLI_KEY_CONTENT` | Full private key content, from `-----BEGIN PRIVATE KEY-----` to `-----END PRIVATE KEY-----`. |
+| `SSH_PUBLIC_KEY` | Full SSH public key line, starting with `ssh-rsa` or `ssh-ed25519`. |
+| `FEISHU_WEBHOOK_URL` | Feishu/Lark custom bot webhook URL. |
 
-## Step 1: Fork This Repository
+Optional:
 
-Click the **"Fork"** button at the top-right of this page. This will create a copy of this repository in your own GitHub account. All the following steps will be done on **your fork**.
+| Secret | Value |
+| --- | --- |
+| `FEISHU_WEBHOOK_SECRET` | Feishu/Lark custom bot signing secret, only needed if signature verification is enabled. |
 
-## Step 2: Generate Your OCI API Credentials
+## OCI Values
 
-This is the most detailed step. You need to gather **11 pieces of information** from your OCI account and your computer.
+### Tenancy, User, and Region
 
-### A. Core IDs (Tenancy, User, Region)
+In the OCI Console:
 
-1.  Log in to your OCI Console.
-2.  **Tenancy OCID:** Click your **Profile icon** (top right) -> **Tenancy: [your\_tenancy\_name]**.
-    * Copy the **OCID** value. This is your `OCI_CLI_TENANCY`.
-    * *Note: For "Always Free" accounts, this is also your `COMPARTMENT_ID`.*
-3.  **User OCID:** Click your **Profile icon** -> **User Settings**.
-    * Copy the **OCID** value. This is your `OCI_CLI_USER`.
-4.  **Region Identifier:** Look in the top-right corner of the console (e.g., "Singapore").
-    * Hover over it or click it to find the identifier (e.g., `ap-singapore-1`). This is your `OCI_CLI_REGION`.
+1. Open the profile menu in the top-right corner.
+2. Open tenancy details and copy the tenancy OCID for `OCI_CLI_TENANCY`.
+3. Open user settings and copy the user OCID for `OCI_CLI_USER`.
+4. Copy the region identifier for `OCI_CLI_REGION`, such as `us-phoenix-1`.
 
-### B. OCI API Key (Private Key & Fingerprint)
+`OCI_CLI_TENANCY` must look like:
 
-1.  On the same **User Settings** page, click **"API Keys"** from the left-hand menu.
-2.  Click the **"Add API Key"** button.
-3.  Select **"Generate API Key Pair"**.
-4.  Click **"Download Private Key"** and save the `oci_api_key.pem` file. **Do not lose this file.**
-5.  Click the **"Add"** button.
-6.  A "Configuration File Preview" will pop up. From this box, copy the `fingerprint` value. This is your `OCI_CLI_FINGERPRINT`.
+```text
+ocid1.tenancy.oc1..xxxxxxxx
+```
 
-### C. VM-Specific IDs (Subnet, Image, AD)
+Do not paste `tenancy=...`, a user OCID, a compartment OCID, or the tenancy display name.
 
-1.  **Subnet ID:**
-    * Go to the OCI Console menu (☰) -> **Networking** -> **Virtual Cloud Networks**.
-    * Click on your VCN (there is likely one default VCN).
-    * Click on **"Subnets"** in the left menu.
-    * Click on your public subnet (e.g., `Public Subnet ...`).
-    * Copy the **OCID** of the subnet. This is your `SUBNET_ID`.
-2.  **Availability Domain (AD) Name:**
-    * Go to the OCI Console menu (☰) -> **Compute** -> **Instances**.
-    * Click **"Create Instance"**.
-    * In the **"Placement"** section, look at the **"Availability Domain"** dropdown. You likely only have one.
-    * Copy its name *exactly* as it appears (e.g., `KClJ:AP-SINGAPORE-1-AD-1`). This is your `AD_NAME`.
-3.  **Image ID:**
-    * On the same "Create Instance" page, in the **"Image and shape"** section, click **"Change Image"**.
-    * Select **"Canonical Ubuntu"** (or another OS of your choice).
-    * Click the name of the image (e.g., "Canonical Ubuntu 22.04"). A details panel will slide out.
-    * Copy the **OCID** of the image. This is your `IMAGE_ID`.
-    * You can now cancel the "Create Instance" wizard.
-    * If you still can not find the image, check this website and choose your image and copy ocid mentioned according to region. <https://docs.oracle.com/en-us/iaas/images/>
-    * set this `IMAGE_ID` in your action env.
-4.  **OCPUs and RAM**
-    * The default settings in this action is to provision instance with 2 OCPUs and 12 GB memory.
-    * you can change this in action line 59 `--shape-config '{"ocpus":2,"memoryInGBs":12}' \`
-6. **Boot Volume and Name**
-    * The default settings in this action is to provision instance with `100`GB boot volume with name `coolify-vm`.
-    * you can change bootvolume in action line 65 `--boot-volume-size-in-gbs 100' \`
-    * you can change instance name in same command (action line 64) `--display-name "coolify-vm"`
-   
-### D. Your SSH Public Key
+### API Key
 
-This is the key you will use to log in to your new server.
+In OCI user settings:
 
-1.  Open a terminal on your computer.
-2.  Check if you have a key: `cat ~/.ssh/id_rsa.pub`
-3.  **If it shows a key:** Copy the entire output (it starts with `ssh-rsa...`). This is your `SSH_PUBLIC_KEY`.
-4.  **If it shows "No such file":** Run `ssh-keygen -t rsa -b 2048`. Press Enter three times to accept the defaults. Then, run `cat ~/.ssh/id_rsa.pub` again and copy the key.
+1. Open **API Keys**.
+2. Add or generate an API key.
+3. Copy the fingerprint into `OCI_CLI_FINGERPRINT`.
+4. Copy the full private key file content into `OCI_CLI_KEY_CONTENT`.
 
----
+### Subnet and Availability Domain
 
-## Step 3: Create a Feishu/Lark Webhook
+For `OCI_SUBNET_ID`, open:
 
-1.  Open the Feishu/Lark group that should receive notifications.
-2.  Open the group settings and add a **Custom Bot**.
-3.  Copy the webhook URL. It usually looks like `https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx`.
-4.  Optional: If you enable signature verification for the bot, copy the signing secret too.
+```text
+Networking -> Virtual cloud networks -> your VCN -> Subnets -> your public subnet
+```
 
----
+Copy the subnet OCID.
 
-## Step 4: Configure GitHub Secrets
+For `AD_NAME`, open the create-instance page and copy the exact availability domain name shown in placement settings.
 
-Go to your forked repository on GitHub.
+### Image ID
 
-1.  Click the **"Settings"** tab.
-2.  In the left menu, click **"Secrets and variables"** -> **"Actions"**.
-3.  Click the **"New repository secret"** button for each secret listed below.
+`IMAGE_ID` must be an Arm/aarch64 image for the same region as `OCI_CLI_REGION`.
 
-#### **VM Secrets**
+For A1.Flex, do not use the normal x86 Ubuntu image. Use an image whose name includes `aarch64`, such as:
 
-* `OCI_COMPARTMENT_ID` (Value: Your Tenancy OCID from Step 2A)
-* `IMAGE_ID` (Value: Your Image OCID from Step 2C)
-* `OCI_SUBNET_ID` (Value: Your Subnet OCID from Step 2C)
-* `AD_NAME` (Value: Your Availability Domain name from Step 2C)
-* `SSH_PUBLIC_KEY` (Value: The `ssh-rsa...` key from Step 2D)
+```text
+Canonical-Ubuntu-24.04-aarch64-...
+```
 
-#### **Authentication Secrets**
+Oracle image OCIDs are listed here:
 
-* `OCI_CLI_REGION` (Value: Your region from Step 2A, e.g., `ap-singapore-1`)
-* `OCI_CLI_USER` (Value: Your User OCID from Step 2A)
-* `OCI_CLI_TENANCY` (Value: Your Tenancy OCID from Step 2A)
-* `OCI_CLI_FINGERPRINT` (Value: The fingerprint from Step 2B)
-* `OCI_CLI_KEY_CONTENT` (Value: Open the `oci_api_key.pem` file you downloaded in Step 2B with a text editor. Copy the *entire contents*, from `-----BEGIN PRIVATE KEY-----` to `-----END PRIVATE KEY-----`, and paste it here.)
+```text
+https://docs.oracle.com/en-us/iaas/images/
+```
 
-#### **Notification Secret**
+### SSH Public Key
 
-* `FEISHU_WEBHOOK_URL` (Value: The webhook URL you copied from Feishu/Lark in Step 3)
-* `FEISHU_WEBHOOK_SECRET` (Optional. Value: The signing secret if you enabled signature verification for the custom bot)
+On your Mac, run:
 
----
+```bash
+cat ~/.ssh/id_rsa.pub
+```
 
-## Step 5: Run the Workflow
+If that file does not exist, try:
 
-You're all set! Now you just need to start the process.
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
 
-1.  Go to the **"Actions"** tab of your forked repository.
-2.  In the left sidebar, click on **"Try to Create OCI VM"**.
-3.  You will see a message: "This workflow has a `workflow_dispatch` event." Click the **"Run workflow"** button on the right, and then **"Run workflow"** again.
+Copy the full output line into `SSH_PUBLIC_KEY`. It should start with `ssh-rsa` or `ssh-ed25519`, not just the trailing machine name.
 
-This will start the first run. From now on, the `schedule` will automatically run it every 10 minutes. You can check the "Actions" tab to see the logs from each run. You will also get a notification in Feishu/Lark every time it tries.
+Example shape:
 
----
+```text
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... nemo@MacBook
+```
 
-## 🚨 CRITICAL: What to Do on Success
+## Feishu/Lark Bot
 
-One day, you will get a **success** notification in Feishu/Lark. This means your VM has been created!
+In Feishu/Lark:
 
-As soon as you see this, you **MUST** disable the workflow.
+1. Open the group that should receive notifications.
+2. Add a custom bot.
+3. Copy the webhook URL into `FEISHU_WEBHOOK_URL`.
+4. If signature verification is enabled, copy the signing secret into `FEISHU_WEBHOOK_SECRET`.
 
-1.  Go to the **"Actions"** tab in your repository.
-2.  Click on **"Try to Create OCI VM"** in the sidebar.
-3.  Click the **three-dot (...)** menu on the right.
-4.  Click **"Disable workflow"**.
+The workflow automatically adds `timestamp` and `sign` when `FEISHU_WEBHOOK_SECRET` is present.
 
-If you do not do this, the action will continue running every 10 minutes and will try to create *another* VM, which will just fill your logs with errors.
+## Run the Workflow
 
-Your VM will be provisioning in the OCI console. You can now log in using the SSH key you provided.
+Open:
+
+```text
+Actions -> Try to Create OCI VM -> Run workflow
+```
+
+Choose `main`, then start the run.
+
+After that, the schedule will retry every 5 minutes.
+
+## Notifications
+
+The Feishu notification policy is intentionally quiet:
+
+| Result | Feishu notification |
+| --- | --- |
+| `Out of host capacity` | No notification |
+| Successful provisioning / `PROVISIONING` | Notification sent |
+| Credential, OCID, subnet, image, SSH key, or other non-capacity errors | Notification sent |
+
+You can still inspect every scheduled attempt in GitHub Actions logs.
+
+## What to Do on Success
+
+When Feishu reports success, or the GitHub Actions log contains:
+
+```text
+"lifecycle-state": "PROVISIONING"
+```
+
+disable the workflow immediately:
+
+```text
+Actions -> Try to Create OCI VM -> ... -> Disable workflow
+```
+
+If you leave it enabled, it will keep trying every 5 minutes and may attempt to create another VM.
+
+## Troubleshooting
+
+### `tenancy | malformed | this must be an OCID`
+
+`OCI_CLI_TENANCY` is not a valid tenancy OCID. It must start with:
+
+```text
+ocid1.tenancy...
+```
+
+### `Invalid ssh public key type`
+
+`SSH_PUBLIC_KEY` is incomplete. Copy the full public key line, starting with `ssh-rsa` or `ssh-ed25519`.
+
+### `Shape VM.Standard.A1.Flex is not valid for image`
+
+`IMAGE_ID` is probably an x86 image. Replace it with an Arm/aarch64 image OCID from the same region.
+
+### `Out of host capacity`
+
+This is the expected retry state. The configuration is working; OCI does not currently have A1.Flex capacity in that availability domain.
+
+### `There are no runners configured`
+
+This is normal. The workflow uses GitHub-hosted `ubuntu-latest`, so you do not need to create a self-hosted runner.
+
+## Changing VM Size
+
+The VM size is currently hardcoded in `.github/workflows/create-vm.yml`:
+
+```yaml
+--shape-config '{"ocpus":4,"memoryInGBs":24}' \
+--display-name "coolify-vm" \
+--boot-volume-size-in-gbs 200
+```
+
+For a smaller VM, edit those values in the workflow file.
 
 ## License
 
