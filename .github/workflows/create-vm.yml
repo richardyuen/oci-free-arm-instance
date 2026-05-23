@@ -80,7 +80,7 @@ jobs:
           fi
 
       - name: Send Feishu Notification
-        if: always()
+        if: always() && (steps.create_vm.outcome == 'success' || !contains(steps.create_vm.outputs.log_data, 'Out of host capacity'))
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
