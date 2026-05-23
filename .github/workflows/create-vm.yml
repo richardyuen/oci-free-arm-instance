@@ -52,18 +52,40 @@ jobs:
           echo "region=${{ env.OCI_CLI_REGION }}" >> ~/.oci/config
           echo "${{ secrets.SSH_PUBLIC_KEY }}" > /home/runner/my_ssh_key.pub
 
-          # Run the command, capture ALL output, and use '|| true' to prevent the script from exiting early.
-          OCI_OUTPUT=$(oci compute instance launch \
-            --compartment-id "$COMPARTMENT_ID" \
-            --availability-domain "$AD_NAME" \
-            --shape "VM.Standard.A1.Flex" \
-            --shape-config '{"ocpus":4,"memoryInGBs":24}' \
-            --subnet-id "$SUBNET_ID" \
-            --image-id "$IMAGE_ID" \
-            --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
-            --assign-public-ip true \
-            --display-name "coolify-vm" \
-            --boot-volume-size-in-gbs 200 2>&1 || true)
+          MAX_ATTEMPTS=3
+          OCI_OUTPUT=""
+
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "OCI launch attempt ${attempt}/${MAX_ATTEMPTS}..."
+
+            ATTEMPT_OUTPUT=$(oci compute instance launch \
+              --compartment-id "$COMPARTMENT_ID" \
+              --availability-domain "$AD_NAME" \
+              --shape "VM.Standard.A1.Flex" \
+              --shape-config '{"ocpus":4,"memoryInGBs":24}' \
+              --subnet-id "$SUBNET_ID" \
+              --image-id "$IMAGE_ID" \
+              --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
+              --assign-public-ip true \
+              --display-name "coolify-vm" \
+              --boot-volume-size-in-gbs 200 2>&1)
+
+            OCI_OUTPUT="${OCI_OUTPUT}
+--- Attempt ${attempt}/${MAX_ATTEMPTS} ---
+${ATTEMPT_OUTPUT}"
+
+            if echo "$ATTEMPT_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
+              break
+            fi
+
+            if echo "$ATTEMPT_OUTPUT" | grep -q 'Out of host capacity'; then
+              break
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
 
           # Store the log as a GitHub step output
           echo "log_data<<EOF" >> $GITHUB_OUTPUT
