@@ -68,11 +68,13 @@ jobs:
               --ssh-authorized-keys-file "/home/runner/my_ssh_key.pub" \
               --assign-public-ip true \
               --display-name "coolify-vm" \
-              --boot-volume-size-in-gbs 200 2>&1)
+              --boot-volume-size-in-gbs 200 2>&1 || true)
 
-            OCI_OUTPUT="${OCI_OUTPUT}
---- Attempt ${attempt}/${MAX_ATTEMPTS} ---
-${ATTEMPT_OUTPUT}"
+            OCI_OUTPUT="$(printf '%s\n--- Attempt %s/%s ---\n%s' \
+              "$OCI_OUTPUT" \
+              "$attempt" \
+              "$MAX_ATTEMPTS" \
+              "$ATTEMPT_OUTPUT")"
 
             if echo "$ATTEMPT_OUTPUT" | grep -q '"lifecycle-state": "PROVISIONING"'; then
               break
